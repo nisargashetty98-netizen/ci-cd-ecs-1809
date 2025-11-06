@@ -1,0 +1,88 @@
+name: app-ci-cd
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Warmup "Hello, pipeline" artifact (keep this forever)
+      - name: Warmup artifact (hello-1809)
+        run: |
+          echo "run $GITHUB_RUN_ID for $GITHUB_SHA" > hello-1809.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hello-1809
+          path: hello-1809.txt
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Validate Docker build (tag includes -1809)
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          docker build -t app:${SHA}-1809 .
+
+  deploy:
+    needs: build-test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: us-east-1
+      ECR_REPO: your-ecr-repo-name        # <-- set in Part 6
+      ECS_CLUSTER: your-ecs-cluster       # <-- set in Part 7
+      ECS_SERVICE: your-ecs-service       # <-- set in Part 7
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::865414894725:role/github-oidc-ecs-deploy   # <-- set in Part 5
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & Push image
+        run: |
+          set -euo pipefail
+          SHA=$(git rev-parse --short HEAD)
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          REGISTRY="${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          IMAGE="${REGISTRY}/${{ env.ECR_REPO }}:${SHA}-1809"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      - name: Render task definition with new image
+        run: |
+          sed "s|IMAGE_URI|${IMAGE}|g" ecs-taskdef-template.json > taskdef.json
+
+      - name: Deploy to ECS (managed action)
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: taskdef.json
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
