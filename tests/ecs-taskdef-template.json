@@ -1,0 +1,25 @@
+{
+  "family": "hello-ecs-1809",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::865414894725:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::865414894725:role/ecsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "web",
+      "image": "IMAGE_URI",
+      "portMappings": [{ "containerPort": 8080, "protocol": "tcp" }],
+      "essential": true,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/hello-ecs-1809",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}
