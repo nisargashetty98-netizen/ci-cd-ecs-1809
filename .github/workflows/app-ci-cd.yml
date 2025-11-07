@@ -39,18 +39,11 @@ jobs:
           SHA=$(git rev-parse --short HEAD)
           docker build -t app:${SHA}-1809 .
 
-  deploy:
-    needs: build-test
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-    env:
+  env:
       AWS_REGION: us-east-1
-      ECR_REPO: your-ecr-repo-name        # <-- set in Part 6
-      ECS_CLUSTER: your-ecs-cluster       # <-- set in Part 7
-      ECS_SERVICE: your-ecs-service       # <-- set in Part 7
+      ECR_REPO: ci-cd-ecs-1809
+      ECS_CLUSTER: ecs-1809-cluster
+      ECS_SERVICE: ecs-1809-service
     steps:
       - uses: actions/checkout@v4
 
