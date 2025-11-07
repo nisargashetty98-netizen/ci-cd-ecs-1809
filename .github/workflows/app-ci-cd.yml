@@ -16,17 +16,17 @@ jobs:
       - name: Warmup artifact (hello-1809)
         run: |
           echo "run $GITHUB_RUN_ID for $GITHUB_SHA" > hello-1809.txt
-
       - uses: actions/upload-artifact@v4
         with:
           name: hello-1809
           path: hello-1809.txt
 
+      # Setup Python and run tests
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           pip install -r requirements.txt
           pip install pytest
@@ -34,12 +34,20 @@ jobs:
       - name: Run tests
         run: pytest -q
 
-      - name: Validate Docker build (tag includes -1809)
+      # Validate Docker build
+      - name: Validate Docker build
         run: |
           SHA=$(git rev-parse --short HEAD)
           docker build -t app:${SHA}-1809 .
 
-  env:
+  deploy:
+    needs: build-test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
       AWS_REGION: us-east-1
       ECR_REPO: ci-cd-ecs-1809
       ECS_CLUSTER: ecs-1809-cluster
@@ -47,17 +55,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure AWS (OIDC)
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::865414894725:role/github-oidc-ecs-deploy   # <-- set in Part 5
+          role-to-assume: arn:aws:iam::865414894725:role/GitHubOIDCRole-1809
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to ECR
+      - name: Login to Amazon ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build & Push image
+      - name: Build & Push Docker image
         run: |
           set -euo pipefail
           SHA=$(git rev-parse --short HEAD)
@@ -68,11 +76,11 @@ jobs:
           docker push "$IMAGE"
           echo "IMAGE=$IMAGE" >> $GITHUB_ENV
 
-      - name: Render task definition with new image
+      - name: Render new ECS task definition
         run: |
           sed "s|IMAGE_URI|${IMAGE}|g" ecs-taskdef-template.json > taskdef.json
 
-      - name: Deploy to ECS (managed action)
+      - name: Deploy to Amazon ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: taskdef.json
